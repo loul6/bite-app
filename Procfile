@@ -1,0 +1,1 @@
+web: gunicorn bite_prototype:app

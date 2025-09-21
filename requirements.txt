@@ -1,0 +1,6 @@
+Flask
+Pillow
+reportlab
+pdfminer.six
+python-docx
+gunicorn
