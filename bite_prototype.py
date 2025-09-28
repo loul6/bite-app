@@ -25,58 +25,56 @@ except Exception:
 app = Flask(__name__)
 app.secret_key = 'dev-key-bite-prototype'  # usar secret real en producción
 
-# HTML simple embebido
+# HTML embebido con Bootstrap
 INDEX_HTML = '''
 <!doctype html>
 <html lang="es">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bite - Prototipo conversor</title>
+    <title>Bite - Conversor de archivos</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   </head>
   <body class="bg-light">
-    <div class="container py-4">
-      <h1 class="mb-3">Bite — Prototipo conversor de archivos</h1>
-      <p class="lead">Sube un archivo, elige la conversión y descarga el resultado.</p>
+    <div class="container py-5">
+      <div class="text-center mb-4">
+        <h1 class="display-5 fw-bold">Bite</h1>
+        <p class="lead">Convierte archivos de forma rápida y fácil</p>
+      </div>
 
       {% with messages = get_flashed_messages() %}
         {% if messages %}
-          <div class="alert alert-warning">{{ messages[0] }}</div>
+          <div class="alert alert-warning text-center">{{ messages[0] }}</div>
         {% endif %}
       {% endwith %}
 
-      <form method="post" action="/convert" enctype="multipart/form-data" class="row g-3">
-        <div class="col-md-6">
-          <label for="file" class="form-label">Archivo</label>
-          <input class="form-control" type="file" id="file" name="file" required>
-        </div>
-        <div class="col-md-4">
-          <label for="target" class="form-label">Conversión</label>
-          <select id="target" name="target" class="form-select" required>
-            <option value="txt->pdf">.txt → .pdf</option>
-            <option value="pdf->txt">.pdf → .txt</option>
-            <option value="docx->txt">.docx → .txt</option>
-            <option value="img->png">Imagen → .png</option>
-            <option value="img->jpg">Imagen → .jpg</option>
-            <option value="img->webp">Imagen → .webp</option>
-          </select>
-        </div>
-        <div class="col-md-2 d-flex align-items-end">
-          <button type="submit" class="btn btn-primary w-100">Convertir</button>
-        </div>
-      </form>
+      <div class="card shadow-sm p-4">
+        <form method="post" action="/convert" enctype="multipart/form-data" class="row g-3 align-items-end">
+          <div class="col-md-6">
+            <label for="file" class="form-label">Selecciona tu archivo</label>
+            <input class="form-control" type="file" id="file" name="file" required>
+          </div>
+          <div class="col-md-4">
+            <label for="target" class="form-label">Tipo de conversión</label>
+            <select id="target" name="target" class="form-select" required>
+              <option value="txt->pdf">.txt → .pdf</option>
+              <option value="pdf->txt">.pdf → .txt</option>
+              <option value="docx->txt">.docx → .txt</option>
+              <option value="docx->pdf">.docx → .pdf</option>
+              <option value="img->png">Imagen → .png</option>
+              <option value="img->jpg">Imagen → .jpg</option>
+              <option value="img->webp">Imagen → .webp</option>
+            </select>
+          </div>
+          <div class="col-md-2 d-grid">
+            <button type="submit" class="btn btn-primary btn-lg">Convertir</button>
+          </div>
+        </form>
+      </div>
 
-      <hr>
-      <h5>Notas rápidas</h5>
-      <ul>
-        <li>Soporta conversiones básicas para demostrar flujo.</li>
-        <li>Para pdf→txt y txt→pdf necesitas instalar <code>pdfminer.six</code> y <code>reportlab</code>.</li>
-        <li>Para .docx necesitas <code>python-docx</code>.</li>
-        <li>Para imágenes se usa <code>Pillow</code>.</li>
-      </ul>
-
-      <footer class="mt-4 text-muted small">Bite prototype • demo</footer>
+      <footer class="mt-5 text-center text-muted small">
+        Bite • Prototipo • Render deployment
+      </footer>
     </div>
   </body>
 </html>
@@ -84,11 +82,9 @@ INDEX_HTML = '''
 
 ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'webp'}
 
-
 @app.route('/')
 def index():
     return render_template_string(INDEX_HTML)
-
 
 @app.route('/convert', methods=['POST'])
 def convert():
@@ -142,6 +138,18 @@ def convert():
         out = docx_to_txt(file_stream)
         return send_file(io.BytesIO(out.encode('utf-8')), as_attachment=True, download_name=filename.rsplit('.', 1)[0] + '.txt', mimetype='text/plain')
 
+    # docx -> pdf
+    if target == 'docx->pdf':
+        if ext != 'docx':
+            flash('Para docx->pdf sube un .docx')
+            return redirect(url_for('index'))
+        if docx is None or canvas is None:
+            flash('Faltan dependencias: reportlab y python-docx')
+            return redirect(url_for('index'))
+        out = docx_to_pdf(file_stream)
+        out.seek(0)
+        return send_file(out, as_attachment=True, download_name=filename.rsplit('.', 1)[0] + '.pdf', mimetype='application/pdf')
+
     # image conversions
     if target.startswith('img->'):
         if ext not in ALLOWED_IMAGE_EXT:
@@ -160,9 +168,7 @@ def convert():
     flash('Conversión no soportada o datos inválidos.')
     return redirect(url_for('index'))
 
-
 # ---- funciones de conversión ----
-
 def txt_to_pdf(file_stream):
     file_stream.seek(0)
     text = file_stream.read().decode('utf-8', errors='replace')
@@ -188,18 +194,15 @@ def txt_to_pdf(file_stream):
     out.seek(0)
     return out
 
-
 def pdf_to_txt(file_stream):
     file_stream.seek(0)
     return extract_text(file_stream)
-
 
 def docx_to_txt(file_stream):
     file_stream.seek(0)
     doc = docx.Document(file_stream)
     paragraphs = [p.text for p in doc.paragraphs]
     return '\n'.join(paragraphs)
-
 
 def image_convert(file_stream, target_ext):
     file_stream.seek(0)
@@ -215,3 +218,37 @@ def image_convert(file_stream, target_ext):
     im.save(out, format=pil_format)
     out.seek(0)
     return out
+
+def docx_to_pdf(file_stream):
+    """Convierte un .docx a PDF simple."""
+    file_stream.seek(0)
+    doc = docx.Document(file_stream)
+    out = io.BytesIO()
+    c = canvas.Canvas(out, pagesize=letter)
+    width, height = letter
+    margin_x = 40
+    margin_y = 40
+    y = height - margin_y
+
+    for p in doc.paragraphs:
+        text = p.text
+        while len(text) > 120:
+            c.drawString(margin_x, y, text[:120])
+            y -= 12
+            text = text[120:]
+            if y < margin_y:
+                c.showPage()
+                y = height - margin_y
+        c.drawString(margin_x, y, text)
+        y -= 12
+        if y < margin_y:
+            c.showPage()
+            y = height - margin_y
+
+    c.save()
+    out.seek(0)
+    return out
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
