@@ -2,20 +2,17 @@ from flask import Flask, request, send_file, render_template_string, flash, redi
 from werkzeug.utils import secure_filename
 import io
 from PIL import Image
-
 # Conversión PDF <-> texto
 try:
     from pdfminer.high_level import extract_text
 except Exception:
     extract_text = None
-
 # Para generar PDF desde texto
 try:
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import letter
 except Exception:
     canvas = None
-
 # Para leer docx
 try:
     import docx
@@ -25,7 +22,7 @@ except Exception:
 app = Flask(__name__)
 app.secret_key = 'dev-key-bite-prototype'  # usar secret real en producción
 
-# HTML embebido con Bootstrap
+# HTML embebido con Bootstrap y funcionalidad de texto a voz
 INDEX_HTML = '''
 <!doctype html>
 <html lang="es">
@@ -41,41 +38,57 @@ INDEX_HTML = '''
         <h1 class="display-5 fw-bold">Bite</h1>
         <p class="lead">Convierte archivos de forma rápida y fácil</p>
       </div>
-
       {% with messages = get_flashed_messages() %}
         {% if messages %}
           <div class="alert alert-warning text-center">{{ messages[0] }}</div>
         {% endif %}
       {% endwith %}
-
       <div class="card shadow-sm p-4">
         <form method="post" action="/convert" enctype="multipart/form-data" class="row g-3 align-items-end">
           <div class="col-md-6">
             <label for="file" class="form-label">Selecciona tu archivo</label>
-            <input class="form-control" type="file" id="file" name="file" required>
+            <input class="form-control" type="file" id="file" name="file" required data-speech="Selecciona tu archivo a convertir">
           </div>
           <div class="col-md-4">
             <label for="target" class="form-label">Tipo de conversión</label>
-            <select id="target" name="target" class="form-select" required>
-              <option value="txt->pdf">.txt → .pdf</option>
-              <option value="pdf->txt">.pdf → .txt</option>
-              <option value="docx->txt">.docx → .txt</option>
-              <option value="docx->pdf">.docx → .pdf</option>
-              <option value="img->png">Imagen → .png</option>
-              <option value="img->jpg">Imagen → .jpg</option>
-              <option value="img->webp">Imagen → .webp</option>
+            <select id="target" name="target" class="form-select" required data-speech="Selecciona el tipo de conversión">
+              <option value="txt->pdf" data-speech="Convertir de texto a PDF">.txt → .pdf</option>
+              <option value="pdf->txt" data-speech="Convertir de PDF a texto">.pdf → .txt</option>
+              <option value="docx->txt" data-speech="Convertir de Word a texto">.docx → .txt</option>
+              <option value="docx->pdf" data-speech="Convertir de Word a PDF">.docx → .pdf</option>
+              <option value="img->png" data-speech="Convertir imagen a PNG">Imagen → .png</option>
+              <option value="img->jpg" data-speech="Convertir imagen a JPG">Imagen → .jpg</option>
+              <option value="img->webp" data-speech="Convertir imagen a WebP">Imagen → .webp</option>
             </select>
           </div>
           <div class="col-md-2 d-grid">
-            <button type="submit" class="btn btn-primary btn-lg">Convertir</button>
+            <button type="submit" class="btn btn-primary btn-lg" data-speech="Convertir archivo">Convertir</button>
           </div>
         </form>
       </div>
-
       <footer class="mt-5 text-center text-muted small">
         Bite • Prototipo • Render deployment
       </footer>
     </div>
+    <script>
+      // Función para hablar
+      function speak(text) {
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'es-ES'; // español
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+      // Escuchar cuando el mouse pasa sobre cualquier elemento con data-speech
+      document.addEventListener('DOMContentLoaded', () => {
+        const elements = document.querySelectorAll('[data-speech]');
+        elements.forEach(el => {
+          el.addEventListener('mouseover', () => {
+            speak(el.getAttribute('data-speech'));
+          });
+        });
+      });
+    </script>
   </body>
 </html>
 '''
@@ -91,19 +104,16 @@ def convert():
     if 'file' not in request.files:
         flash('No se subió ningún archivo.')
         return redirect(url_for('index'))
-
     f = request.files['file']
     if f.filename == '':
         flash('Nombre de archivo vacío.')
         return redirect(url_for('index'))
-
     target = request.form.get('target')
     filename = secure_filename(f.filename)
     ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
-
     data = f.read()
     file_stream = io.BytesIO(data)
-
+    
     # txt -> pdf
     if target == 'txt->pdf':
         if ext != 'txt':
@@ -115,7 +125,7 @@ def convert():
         out = txt_to_pdf(file_stream)
         out.seek(0)
         return send_file(out, as_attachment=True, download_name=filename.rsplit('.', 1)[0] + '.pdf', mimetype='application/pdf')
-
+    
     # pdf -> txt
     if target == 'pdf->txt':
         if ext != 'pdf':
@@ -126,7 +136,7 @@ def convert():
             return redirect(url_for('index'))
         out = pdf_to_txt(file_stream)
         return send_file(io.BytesIO(out.encode('utf-8')), as_attachment=True, download_name=filename.rsplit('.', 1)[0] + '.txt', mimetype='text/plain')
-
+    
     # docx -> txt
     if target == 'docx->txt':
         if ext != 'docx':
@@ -137,7 +147,7 @@ def convert():
             return redirect(url_for('index'))
         out = docx_to_txt(file_stream)
         return send_file(io.BytesIO(out.encode('utf-8')), as_attachment=True, download_name=filename.rsplit('.', 1)[0] + '.txt', mimetype='text/plain')
-
+    
     # docx -> pdf
     if target == 'docx->pdf':
         if ext != 'docx':
@@ -149,7 +159,7 @@ def convert():
         out = docx_to_pdf(file_stream)
         out.seek(0)
         return send_file(out, as_attachment=True, download_name=filename.rsplit('.', 1)[0] + '.pdf', mimetype='application/pdf')
-
+    
     # image conversions
     if target.startswith('img->'):
         if ext not in ALLOWED_IMAGE_EXT:
@@ -164,7 +174,7 @@ def convert():
         except Exception as e:
             flash('Error en conversión de imagen: ' + str(e))
             return redirect(url_for('index'))
-
+    
     flash('Conversión no soportada o datos inválidos.')
     return redirect(url_for('index'))
 
@@ -229,26 +239,23 @@ def docx_to_pdf(file_stream):
     margin_x = 40
     margin_y = 40
     y = height - margin_y
-
     for p in doc.paragraphs:
         text = p.text
         while len(text) > 120:
             c.drawString(margin_x, y, text[:120])
             y -= 12
             text = text[120:]
-            if y < margin_y:
-                c.showPage()
-                y = height - margin_y
+        if y < margin_y:
+            c.showPage()
+            y = height - margin_y
         c.drawString(margin_x, y, text)
         y -= 12
         if y < margin_y:
             c.showPage()
             y = height - margin_y
-
     c.save()
     out.seek(0)
     return out
 
 if __name__ == '__main__':
     app.run(debug=True)
-
